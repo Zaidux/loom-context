@@ -1,0 +1,61 @@
+Okay so I have been looking into the failing webhook test for a while now and I
+want to give you a full picture of where things stand before we go any further,
+because I think there are a couple of different things going on here and I do
+not want us to jump to conclusions too early.
+
+The first thing I did was run the test suite locally. It failed. The test that
+failed was test_webhook_signature_validation and the error message that came
+back was "expected 200 but got 401". I ran it three more times and it failed
+every single time, so it is definitely not a flaky test as far as I can tell.
+
+Then I looked at the configuration file. The configuration file is config.py and
+on line 88 it sets the webhook tolerance to 300 seconds. I want to point out that
+this is the value that is checked into the repository, and I have not verified
+whether staging or production override it with an environment variable, so that
+is something we should check.
+
+After that I checked the clock on the staging boxes. The staging clock was
+measured to be about 42 seconds ahead of the auth server. This is interesting
+because it is well within the 300 second tolerance, so on the face of it clock
+skew should not be the cause, but I am not completely certain about that yet.
+
+One more important thing to note is that the signature verification path uses a
+different time source than the rest of the request handling, and I believe that
+this is the root cause but I have not proven it yet. I want to be careful here
+because I have been wrong about this kind of thing before.
+
+Let me restate the constraints so we do not lose track of them. We must keep the
+public webhook signature verification path unchanged because external consumers
+depend on it. We must not rotate the Stripe API keys during the migration
+window. We should avoid any downtime for the checkout flow. We must keep the
+feature flag billing.new_client defaulting to off. The test suite must pass
+before we merge anything. All existing webhook consumers must continue to
+receive events with the same shape that they receive today.
+
+Here is the tool output from the last run, for reference:
+
+```
+test_webhook_signature_validation ... FAILED
+  expected: 200
+  actual: 401
+  file: tests/test_webhooks.py:41
+```
+
+And here is the same tool output again, just so you have it in one place:
+
+```
+test_webhook_signature_validation ... FAILED
+  expected: 200
+  actual: 401
+  file: tests/test_webhooks.py:41
+```
+
+The open questions I still have are: does production use NTP? Is the webhook
+tolerance overridable from the environment? Does the signature verification path
+read the time source at import time or at request time? I think we need answers
+to all three before we can be confident about the fix.
+
+So the plan I would suggest is that we first confirm which time source the
+signature verification path actually uses, then add a regression test that
+simulates a clock skew of 42 seconds, then re-run the whole webhook suite in
+staging, and only after that should we consider changing anything in production.

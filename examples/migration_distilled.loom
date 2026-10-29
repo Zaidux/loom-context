@@ -1,0 +1,29 @@
+@loom 1.0
+!goal Migrate billing service from legacy Stripe SDK to new payments client, and migration is fully backwards compatible for all existing webhook consumers, without any downtime for checkout flow, and without changing shape of events we publish to internal bus.
+!done All existing webhook consumers continue to receive events with same shape, checkout flow handles >=200 rps in load test, and staging environment has been running on new client for 48 hours without single error in payments dashboard.
+!must keep legacy event schema for >=two release cycles
+!never change public webhook signature verification path
+!never rotate Stripe API keys during migration window
+!never any downtime for checkout flow, including during cutover
+!must keep feature flag `billing.new_client` defaulting to off
+!never delete legacy adapter until two release cycles have passed
+#state
+  repo = acme/billing at branch release/2026.10
+  migration_stage = shadow traffic at 10 percent
+  legacy_adapter = still the source of truth for webhooks
+  new_client_version = 4.2.1
+  feature_flag_default = off
+#evidence{id,trust,text}
+  e1,0.90,Staging load test reached 180 rps before p99 latency crossed 400 ms
+  e2,0.85,Legacy adapter adds roughly 12 ms of overhead per webhook
+  e3,0.95,New client emits `payment_intent.succeeded` with slightly different field ordering but same fields
+  e4,0.80,"Shadow traffic run produced 3 mismatches out of 10,000 events"
+#next
+  - Add schema-equality assertion to shadow traffic comparator.
+  - Raise shadow traffic to 50% for 24 hours.
+  - Profile new client under load test and find p99 regression.
+  - Enable feature flag in staging only.
+  - Document rollback procedure before touching production.
+?q Do any webhook consumers depend on field ordering rather than field names?
+?q Is 200 rps target measured at edge or at service?
+?q Does new client retry idempotently on 5xx responses?

@@ -1,0 +1,21 @@
+@loom 1.0
+!must keep public webhook signature verification path unchanged because external consumers depend on it
+!never rotate Stripe API keys during migration window
+!never any downtime for checkout flow
+!must keep feature flag billing.new_client defaulting to off
+!must Test suite pass before we merge anything
+!must All existing webhook consumers continue to receive events with same shape they receive today
+#evidence{id,trust,text}
+  e1,,"Test failed was test_webhook_signature_validation and error message came back was ""expected 200 but got 401""."
+  e2,,Configuration file is config.py and on line 88 it sets webhook tolerance to 300 s.
+  e3,,Staging clock was measured to be about 42 s ahead of auth server.
+  e4,,"This is interesting because it is well within 300 s tolerance, so on face of it clock skew should not be cause, but I am not completely certain about yet."
+  e5,,test_webhook_signature_validation ... FAILED expected: 200 actual: 401 file: tests/test_webhooks.py:41
+  e6,,"So plan I would suggest is we first confirm which time source signature verification path uses, then add regression test simulates clock skew of 42 s, then re-run whole webhook suite in staging, and only after should we consider changing anything in production."
+#notes
+  - This is value is checked into repository, and I have not verified whether staging or production override it with environment variable, so is something we should check.
+  - One more important thing to note is signature verification path uses different time source than rest of request handling, and I believe this is root cause but I have not proven it yet.
+  - We need answers to all three before we can be confident about fix.
+?q Does production use NTP?
+?q Is webhook tolerance overridable from environment?
+?q Does signature verification path read time source at import time or at request time?

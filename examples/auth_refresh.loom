@@ -1,0 +1,29 @@
+@loom 1.0
+#use repo.read
+#use shell.run
+#use test.run
+!goal Fix failing refresh test in auth service; no public API change.
+!done auth suite green; public signatures unchanged
+!must preserve backwards compatibility on all public endpoints
+!never edit src/auth/public.py
+!never upgrade the token library
+!must keep diff under 150 lines
+
+#state
+  repo = acme/api @main
+  failing = test_auth_refresh
+  attempts = 2
+  owner = platform-team
+
+#evidence{id,src,trust,text}
+  e1,test_run.ts:41,0.95,"expected 200 got 401"
+  e2,config.py:88,0.90,"refresh_ttl = 900s"
+  e3,staging:clock,0.80,"skew +42s vs auth server"
+
+?q does production use NTP?
+?q is refresh_ttl env-overridable?
+
+#next
+  - check clock-skew handling in token validator
+  - add regression test for +42s skew
+  - re-run auth suite
