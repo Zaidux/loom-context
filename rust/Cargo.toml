@@ -1,0 +1,21 @@
+[package]
+name = "loom-core"
+version = "0.1.0"
+edition = "2021"
+description = "Fast Rust implementation of the Loom context language"
+license = "MIT"
+
+[lib]
+name = "loom_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "loom-rs"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[dependencies]

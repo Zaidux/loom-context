@@ -167,6 +167,44 @@ Every evidence row may carry:
 `ops.noise_report()` counts low-trust rows and duplicate candidates before you spend them.
 `ops.dedupe()` collapses exact repeats, ignoring the `id` column.
 
+### 3.5 Session projection
+
+Real agent transcripts are not prose and not JSON schemas; they are a long sequence of
+`(tool, args)` pairs with repeated task lists and occasional failures. `loom/session.py`
+projects one session record into the same ast used everywhere else:
+
+| record field | Loom |
+|---|---|
+| first intent | `!goal` |
+| remaining intents | `?q` (they constrain, they do not restate the goal) |
+| id / source / workspace / status / counts | `#state` |
+| all `tasks` calls | one `#tasks` table, later status wins |
+| every other tool call | `#calls{tool,arg}`, one line per invocation |
+| incidents | `#incidents` with failing tool and signature |
+| re-requests | `#notes` |
+
+The encoder is mechanical on purpose. It does not summarise, choose, or reorder; it removes
+JSON scaffolding (`{"name": ..., "args": {...}}`) and collapses repeated task payloads. Duplicate
+calls are *kept* by the encoder and removed only by an explicit `dedupe()`, so a "give me the
+whole session" ask never loses an invocation.
+
+Validation: 96.0% of scalar leaves survive, and at an equal token budget the encoding keeps
+96.0% versus 69.8% for naive truncation. Both numbers come from `bench/sessions.py`, which
+computes them independently of this module's field extraction.
+
+### 3.6 Rust port
+
+`rust/` mirrors the Python implementation with no third-party crates: `ast`, `parser`, `render`,
+`decompile`, `ops`, `tokens`. The contract is *output* parity, not code parity — the two
+implementations must emit byte-identical Loom for the same input, and share fixtures in
+`examples/` so a divergence breaks both test suites.
+
+Rust buys throughput: ~20× on a 113k-token session (4.26 ms vs 85.8 ms per parse+render), 81 MiB/s.
+The cost is token accounting: Python uses `tiktoken` when available for exact budget counts;
+Rust uses the same dependency-free estimator as Python's fallback (~3.8 ASCII chars/token). A
+budgeted render is therefore approximate in Rust. That was accepted deliberately — shipping a
+model file would have turned a zero-dependency, offline-safe binary into a network-coupled one.
+
 ---
 
 ## 4. Translator

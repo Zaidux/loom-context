@@ -5,3 +5,11 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Rust build artifacts
+rust/target/
+
+# Session corpora may contain operator data; never commit them.
+sessions_corpus.jsonl
+*.session.json
+*.notebook.json

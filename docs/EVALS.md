@@ -116,6 +116,39 @@ Output on the checked-in examples:
 These are small, author-written cases. They demonstrate the mechanics, not the effect size.
 H1 requires the suite above at ≥ 1k tokens.
 
+### 5.1 Real sessions
+
+`bench/sessions.py` covers H1 at scale on real data: 27 Riciplay CLI sessions (3,849 tool calls)
+read from a local corpus path at runtime and never committed. Each record is projected into Loom
+by `loom/session.py`; fidelity is computed over *all scalar leaves* of the original record,
+independently of the encoder, so a field the encoder forgets shows up as a miss.
+
+```bash
+python bench/sessions.py                # table
+python bench/sessions.py --json         # machine-readable rows
+python bench/sessions.py --show-missing # what did not survive, per session
+```
+
+| representation | tokens | saving | leaf fidelity |
+|---|---:|---:|---:|
+| raw JSON (`indent=2`) | 922,618 | — | 100% |
+| minified JSON | 823,422 | 10.8% | 100% |
+| **Loom** | **713,881** | **22.6%** | **96.0%** |
+| raw JSON truncated to Loom's budget | — | equal budget | **69.8%** |
+
+The last row is the important control: it answers "would truncating the original have been as
+good?" It would not. Structure retains ~26pp more of the record at the same token cost.
+
+The 4% leaf loss comes from long, JSON-escaped tool output that the encoder normalises onto a
+single line. It is deliberate (Loom is line-oriented) and visible in `--show-missing`; it is not
+a silent drop of structured fields.
+
+H1's ≥ 30% target is **not** met on this corpus. Real sessions are dominated by unique tool
+output, which no whitespace-only scheme can compress much further. The honest claim is
+"20–25% against raw JSON, 13% against minified JSON, with far better retention at a fixed
+budget", not 30%.
+
+
 ### What fidelity does and does not catch
 
 It checks a regular-expression set of numbers, paths, identifiers and quoted strings. It will
@@ -148,7 +181,9 @@ rewrite negation, numbers, paths or quotes, but "written to" is not "proven".
 
 | Date | Run | n | Result |
 |---|---:|---:|---|
-| — | token + fidelity (this repo) | 4 pairs | 6.8–39.7% saving, 100% fidelity |
+| — | token + fidelity, curated pairs (this repo) | 4 pairs | 6.8–39.7% saving, 100% fidelity |
+| — | token + fidelity, real Riciplay sessions | 27 sessions / 3,849 calls | −22.6% vs raw JSON, −13.3% vs minified, 96.0% leaf fidelity; equal-budget truncation 69.8% |
+| — | Python vs Rust parse+render, 113k-token session | 500 iterations | ~20× speedup, 4.26 ms/op |
 | — | constraint compliance | — | not run |
 | — | tool-call accuracy | — | not run |
 | — | long-horizon context rot | — | not run |

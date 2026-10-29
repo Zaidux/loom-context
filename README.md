@@ -55,6 +55,8 @@ python -m loom decompile examples/auth_refresh.loom  # Loom -> English
 python -m loom render examples/auth_refresh.loom -b 130 --recap
 python -m loom check examples/auth_refresh.loom
 python bench/eval.py --pair examples/transcript.txt examples/transcript.loom
+python bench/sessions.py --show-missing        # real session corpus, if present
+python bench/speed.py                          # Python vs Rust
 ```
 
 As a library:
@@ -127,6 +129,53 @@ accuracy loss seen with other compact formats is *not yet measured for Loom* —
 to test it is in [`docs/EVALS.md`](docs/EVALS.md). Until that runs, treat the accuracy claim as a
 design hypothesis, not a result.
 
+### Real sessions
+
+`python bench/sessions.py` runs the encoder over **27 real Riciplay agent sessions**
+(3,849 tool calls) and compares three representations of the same record: indented JSON, minified
+JSON, and Loom. "Fidelity" is the share of every scalar leaf in the record (strings ≥ 4 chars,
+numbers) that still appears in the output — it is computed independently of the encoder.
+
+| representation | tokens | vs raw JSON |
+|---|---:|---:|
+| raw JSON (`indent=2`) | 922,618 | — |
+| minified JSON | 823,422 | −10.8% |
+| **Loom** | **713,881** | **−22.6%** |
+
+- **−13.3%** against minified JSON, which is the fair "just compress the whitespace" baseline.
+- **96.0%** leaf fidelity. The remaining gap is long escaped tool output, collapsed onto one
+  line by design; nothing is silently dropped from the structured fields.
+- At an **equal token budget**, naive truncation of the JSON retains only **69.8%** of leaves,
+  versus 96.0% for Loom. Structure beats truncation when context is tight.
+
+The corpus is read from a local path at runtime and is not vendored into this repository.
+
+### Speed (Rust port)
+
+`rust/` is a dependency-free port of the parser, renderer, decompiler and ops, with the same
+CLI surface. `python bench/speed.py` runs parse+render on a real 113k-token session:
+
+| implementation | per op | throughput |
+|---|---:|---:|
+| Python | 85.8 ms | 12 ops/s |
+| **Rust (`loom-rs`, release)** | **4.26 ms** | **235 ops/s**, 81 MiB/s |
+
+That is a **~20× speedup**, enough to re-render context on every turn of a long session without
+the budget engine becoming the bottleneck. Rust and Python produce byte-identical output on the
+checked-in examples, including under `-b` with `--recap`. One caveat: Python uses `tiktoken`
+(`o200k_base`) for exact counts, while Rust uses a dependency-free estimator (~3.8 ASCII
+chars/token), so a Rust `-b 800` is approximate and will not evict at exactly the same row as
+Python's `-b 800`.
+
+```bash
+cd rust && cargo build --release
+./target/release/loom-rs render ../examples/auth_refresh.loom -b 130 --recap
+./target/release/loom-rs decompile ../examples/auth_refresh.loom
+./target/release/loom-rs check ../examples/auth_refresh.loom --strict
+./target/release/loom-rs bench ../examples/transcript.loom --iterations 1000
+```
+
+
 ## Repository layout
 
 ```
@@ -140,20 +189,29 @@ loom/
     decompile.py  Loom -> English
     ops.py        dedupe, lint, noise report
     budget.py     tiktoken counter with fallback
+    session.py    real agent session -> Loom encoder
     cli.py        compile / distill / decompile / render / check / bench
+  rust/
+    src/          dependency-free port (ast, parser, render, decompile, ops)
+    tests/core.rs parity tests over the shared fixtures
   docs/
     DESIGN.md     research review + architecture decisions
     SPEC.md       grammar, semantics, translator contract
     EVALS.md      evaluation protocol and current status
-  bench/eval.py   token + fidelity harness
+  bench/
+    eval.py       token + fidelity harness on curated pairs
+    sessions.py   real-session token/fidelity/equal-budget harness
+    speed.py      Python vs Rust parse+render benchmark
   examples/       paired English/Loom cases
-  tests/          13 tests: round-trip, budget, lint, distillation
+  tests/          28 tests: round-trip, budget, lint, distillation, sessions
 ```
 
 ## Status
 
 Working prototype, v0.1. Not yet validated for downstream accuracy. The language surface is
 stable enough to build against; the distillation heuristics are the part most likely to change.
+Token savings, leaf fidelity, equal-budget retention and Rust/Python parity are measured;
+downstream task accuracy is not.
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for why each component was chosen, and what was
 deliberately left out.

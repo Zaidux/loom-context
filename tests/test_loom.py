@@ -86,6 +86,16 @@ def test_budget_evicts_and_marks_elision():
     assert "~elided" in out or "~truncated" in out
 
 
+def test_budgeted_render_parses_back():
+    """A compressed packet must still be valid on the next turn."""
+    doc = parse(LOOM_EXAMPLE.read_text())
+    full = count_tokens(render(doc))
+    out = render(doc, budget=full // 2, recap=True)
+    again = parse(out)
+    assert again.goal == doc.goal
+    assert [r.text for r in again.rules] == [r.text for r in doc.rules]
+
+
 def test_recap_repeats_rules_at_tail():
     doc = parse(LOOM_EXAMPLE.read_text())
     out = render(doc, recap=True)

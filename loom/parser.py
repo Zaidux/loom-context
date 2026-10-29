@@ -38,7 +38,9 @@ class LoomSyntaxError(ValueError):
         super().__init__(f"line {line}: {message}")
 
 
-_HEADER = re.compile(r"^#([A-Za-z][\w-]*)\s*(?:\[([^\]]*)\])?\s*(?:\{([^}]*)\})?\s*$")
+_HEADER = re.compile(
+    r"^#([A-Za-z][\w-]*)\s*(?:\[([^\]]*)\])?\s*(?:\{([^}]*)\})?\s*(?:~elided\s+\d+)?\s*$"
+)
 _BULLET = re.compile(r"^\s*[-*]\s+(.*)$")
 _KV = re.compile(r"^\s*([A-Za-z_][\w.-]*)\s*=\s*(.*)$")
 
@@ -150,6 +152,11 @@ def parse(source: str) -> Document:
         # ---- rows ------------------------------------------------
         if current is None:
             raise LoomSyntaxError(lineno, f"content outside a section: {stripped[:40]!r}")
+
+        # Eviction markers are metadata, not rows: a renderer that dropped
+        # rows appends `~elided N`, and re-parsing must not treat it as data.
+        if stripped.startswith("~elided"):
+            continue
 
         if current.style == KV:
             m = _KV.match(line)

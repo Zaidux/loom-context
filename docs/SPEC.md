@@ -26,7 +26,8 @@ rule           = ( "!must" | "!never" ) , text ;
 question       = "?q" , text ;
 
 section        = section-header , { row } ;
-section-header = "#" , name , [ "[" , meta , "]" ] , [ "{" , columns , "}" ] ;
+section-header = "#" , name , [ "[" , meta , "]" ] , [ "{" , columns , "}" ] ,
+                 [ "~elided" , integer ] ;   (* trailing marker when every row was evicted *)
 meta           = pair , { pair } ;                 (* whitespace separated *)
 pair           = key , "=" , value ;
 columns        = name , { "," , name } ;
@@ -65,7 +66,10 @@ comment        = ( ";;" | "//" ) , text ;
 | `#next` | ordered actions | yes (0.70) | body |
 | `#refs` | pointers into an external store | yes (0.55) | body |
 | `#notes` | background | yes (0.10) | body |
-| `~elided n` | marker: `n` rows were removed | n/a | in section |
+| `~elided n` | marker: `n` rows were removed | n/a | in section (own line, or trailing the header) |
+
+`~elided` is metadata, not data. Parsers skip a `~elided` row and a trailing `~elided n` on a
+section header, so a budget-evicted packet is still valid input on the next turn.
 
 Custom section names are allowed; unknown names get priority 0.50 and sort after known ones.
 

@@ -125,7 +125,8 @@ def render(
     the survivors are marked with ``~elided n``. Goals and hard rules are
     never evicted.
     """
-    d = copy.deepcopy(doc)
+    # rendering without a budget never mutates the document, so skip the copy
+    d = copy.deepcopy(doc) if budget is not None else doc
     elided: dict[int, int] = {}
     use_recap = recap
 
