@@ -148,6 +148,27 @@ output, which no whitespace-only scheme can compress much further. The honest cl
 "20–25% against raw JSON, 13% against minified JSON, with far better retention at a fixed
 budget", not 30%.
 
+### 5.2 Output-side encoding
+
+`bench/output.py` measures the mirror case: the agent writes Loom instead of English. It runs
+the same codec over five fixed sample answers (three examples, two synthetic reports).
+
+| answer form | tokens | vs English | literal fidelity |
+|---|---:|---:|---:|
+| English | 2,676 | — | 100% |
+| Loom, lossless `compile` | 2,588 | 3.3% | 100% |
+| Loom, lossy `distill` | 2,158 | 19.4% | 96.0% |
+| Loom locally expanded back to English | 2,010 | 24.9% | 96.0% |
+
+What this establishes: the token saving is the same as the input side for the same text, and
+there is no separate output-side effect. The apparent 15.9% expansion saving is distillation,
+not notation — it is cheaper because content was dropped, and fidelity shows it.
+
+What this does **not** establish: that a model will emit valid Loom, that it will emit it without
+being asked twice, or that the answer is as good. Those need a model run and a grader; the
+prompt is in `SPEC.md` §5.3. Until then, treat output mode as an interface option, not a
+measured improvement.
+
 
 ### What fidelity does and does not catch
 
@@ -183,7 +204,9 @@ rewrite negation, numbers, paths or quotes, but "written to" is not "proven".
 |---|---:|---:|---|
 | — | token + fidelity, curated pairs (this repo) | 4 pairs | 6.8–39.7% saving, 100% fidelity |
 | — | token + fidelity, real Riciplay sessions | 27 sessions / 3,849 calls | −22.6% vs raw JSON, −13.3% vs minified, 96.0% leaf fidelity; equal-budget truncation 69.8% |
-| — | Python vs Rust parse+render, 113k-token session | 500 iterations | ~20× speedup, 4.26 ms/op |
+| — | Python vs Rust parse+render, 113k-token session | 500 iterations | ~20× in-process speedup, 4.26 ms/op |
+| — | End-to-end backend crossover (spawn included) | 1k–32k words | ~0.7× → ~8×; threshold 4k chosen |
+| — | Output-side encoding (Loom as the answer) | 5 samples | 3.3% lossless, 19.4% lossy at 96.0% fidelity |
 | — | constraint compliance | — | not run |
 | — | tool-call accuracy | — | not run |
 | — | long-horizon context rot | — | not run |

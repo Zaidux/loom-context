@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 
+from .accel import decompile_source, render_source
 from .budget import count_tokens, tokenizer_name
 from .compile_ import compile_text
 from .distill import distill
@@ -50,23 +51,59 @@ def cmd_distill(args) -> int:
 
 
 def cmd_decompile(args) -> int:
-    _write(args.out, decompile(parse(_read(args.file))))
+    try:
+        text, decision = decompile_source(
+            _read(args.file),
+            backend=args.backend,
+            min_words=args.min_words,
+            binary=args.rust,
+            timeout=args.rust_timeout,
+        )
+    except LoomSyntaxError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.explain:
+        print(f";; {decision.describe()}", file=sys.stderr)
+    _write(args.out, text)
     return 0
 
 
+def _report_backend(args, decision) -> None:
+    """Show the decision on request, and always warn if an explicit Rust request failed."""
+    if args.explain or (args.backend == "rust" and decision.backend != "rust"):
+        print(f";; {decision.describe()}", file=sys.stderr)
+
+
 def cmd_render(args) -> int:
-    doc = parse(_read(args.file))
     try:
-        text = render(
-            doc, budget=args.budget, order=args.order, recap=args.recap, legend=args.legend
+        text, decision = render_source(
+            _read(args.file),
+            budget=args.budget,
+            order=args.order,
+            recap=args.recap,
+            legend=args.legend,
+            backend=args.backend,
+            min_words=args.min_words,
+            binary=args.rust,
+            timeout=args.rust_timeout,
         )
-    except BudgetError as exc:
+    except (BudgetError, LoomSyntaxError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    backend = decision.backend
+    _report_backend(args, decision)
     _write(args.out, text)
     if args.stats:
         print(
-            json.dumps({"tokens": count_tokens(text), "tokenizer": tokenizer_name()}, indent=2),
+            json.dumps(
+                {
+                    "tokens": count_tokens(text),
+                    "tokenizer": tokenizer_name(),
+                    "backend": backend,
+                    "words": decision.words,
+                },
+                indent=2,
+            ),
             file=sys.stderr,
         )
     return 0
@@ -110,6 +147,24 @@ def cmd_stats(args) -> int:
     return 0
 
 
+def _backend_flags(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--backend",
+        choices=["auto", "python", "rust"],
+        default="auto",
+        help="auto = Rust only for large inputs, after a responsiveness probe",
+    )
+    p.add_argument(
+        "--min-words",
+        type=int,
+        default=None,
+        help="auto threshold in words (default 4000, or $LOOM_AUTO_MIN_WORDS)",
+    )
+    p.add_argument("--rust", metavar="PATH", help="path to the loom-rs binary")
+    p.add_argument("--rust-timeout", type=float, default=30.0, help="seconds per Rust invocation")
+    p.add_argument("--explain", action="store_true", help="report the backend decision")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="loom", description="Pragmatic context language for AI agents")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -129,6 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("decompile", help="Loom -> English")
     d.add_argument("file")
     d.add_argument("-o", "--out")
+    _backend_flags(d)
     d.set_defaults(func=cmd_decompile)
 
     r = sub.add_parser("render", help="canonical Loom, optionally under a token budget")
@@ -139,6 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--recap", action="store_true")
     r.add_argument("--legend", action="store_true")
     r.add_argument("--stats", action="store_true")
+    _backend_flags(r)
     r.set_defaults(func=cmd_render)
 
     k = sub.add_parser("check", help="parse + lint")

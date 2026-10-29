@@ -12,6 +12,16 @@ Quick start::
 from __future__ import annotations
 
 from .ast import VERSION, Document, Row, Rule, Section
+from .accel import (
+    BackendDecision,
+    RustError,
+    choose_backend,
+    decompile_source,
+    find_binary,
+    probe_rust,
+    render_source,
+    run_rust,
+)
 from .budget import count_tokens, estimate_tokens, tokenizer_name
 from .compile_ import compile_text
 from .decompile import decompile
@@ -43,6 +53,14 @@ __all__ = [
     "estimate_tokens",
     "tokenizer_name",
     "stats",
+    "BackendDecision",
+    "RustError",
+    "choose_backend",
+    "render_source",
+    "decompile_source",
+    "find_binary",
+    "probe_rust",
+    "run_rust",
 ]
 
 

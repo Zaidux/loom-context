@@ -199,11 +199,52 @@ computes them independently of this module's field extraction.
 implementations must emit byte-identical Loom for the same input, and share fixtures in
 `examples/` so a divergence breaks both test suites.
 
-Rust buys throughput: ~20× on a 113k-token session (4.26 ms vs 85.8 ms per parse+render), 81 MiB/s.
-The cost is token accounting: Python uses `tiktoken` when available for exact budget counts;
-Rust uses the same dependency-free estimator as Python's fallback (~3.8 ASCII chars/token). A
+Rust buys throughput: ~20× in-process on a 113k-token session (4.26 ms vs 85.8 ms per
+parse+render), 81 MiB/s. End-to-end through a subprocess the win depends on size: ~0.7× at 1k
+words, 2.2× at 4k, ~8× at 32k (`bench/backend.py`), because process startup is fixed cost. The
+cost is token accounting: Python uses `tiktoken` when available for exact budget counts; Rust
+uses the same dependency-free estimator as Python's fallback (~3.8 ASCII chars/token). A
 budgeted render is therefore approximate in Rust. That was accepted deliberately — shipping a
 model file would have turned a zero-dependency, offline-safe binary into a network-coupled one.
+
+### 3.7 Backend selection
+
+The fast path is opt-in by size, not always-on:
+
+```
+if backend == python:                 python
+elif words < threshold (4000):        python      # spawn costs more than it saves
+elif probe(loom-rs, 350ms) fails:     python      # missing, hung, or non-zero exit
+else:                                 rust
+if rust raises during the call:       python      # never lose a render to an optimisation
+```
+
+The probe parses a three-line document and is cached per binary mtime, so a long process pays
+it once. An explicit `--backend rust` bypasses the word threshold but still probes; an explicit
+`--rust PATH` is authoritative and does not silently fall back to the repo build.
+
+Why a subprocess rather than FFI: PyO3 or a C ABI would remove the ~2 ms startup and make the
+crossover much lower, but it would couple the Python package to a platform-specific compiled
+artifact. Loom is meant to be installable with `pip` and no toolchain; spawning a static binary
+is the boring, portable option. If the detector ever becomes the bottleneck, `bench/backend.py`
+is the harness that will show it.
+
+### 3.8 Answers written in Loom
+
+The same encoding can be used for model *output* rather than input. `bench/output.py` measures
+it on five fixed answer samples: lossless `compile` saves 3.3%, audited `distill` saves 19.4% at
+96.0% literal fidelity, and local expansion back to English lands at 24.9% because the content
+was already distilled. Two conclusions:
+
+1. There is no special output-side multiplier. Loom is a notation; it compresses the text it is
+   given, whether that text is a prompt or an answer.
+2. The naive "Loom + decompile" pipeline is not a win. Expansion is a local operation, so it
+   costs no model tokens, but it does not recover what distillation dropped, and it adds a
+   translation step. Output Loom is a model-to-model handoff format.
+
+What is unmeasured is the part that decides adoption: can a model emit valid Loom unprompted,
+and is its answer better or worse than prose? `docs/SPEC.md` §5.3 carries the prompt and
+`loom check --strict` is the guardrail; the accuracy protocol is in `EVALS.md`.
 
 ---
 

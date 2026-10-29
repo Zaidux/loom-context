@@ -5,6 +5,11 @@ representation of a task's context that compiles to and from English.
 
 > Working name. The package, CLI and file extension (`.loom`) are easy to rename.
 
+**Why "Loom"?** It is a name, not an acronym. A loom holds many threads under tension so they
+can be woven into one fabric; Loom holds the threads of a task — goal, rules, state, evidence,
+unknowns — in one fixed structure. Any expansion (for example "Layered Objective & Operations
+Memory") is a post-hoc backronym, not the origin.
+
 ---
 
 ## The problem
@@ -56,7 +61,10 @@ python -m loom render examples/auth_refresh.loom -b 130 --recap
 python -m loom check examples/auth_refresh.loom
 python bench/eval.py --pair examples/transcript.txt examples/transcript.loom
 python bench/sessions.py --show-missing        # real session corpus, if present
-python bench/speed.py                          # Python vs Rust
+python bench/speed.py                          # Python vs Rust, in-process
+python bench/backend.py                        # end-to-end crossover, spawn included
+python bench/output.py                         # output-side (Loom as an answer)
+python -m loom render big.loom --explain       # which backend ran, and why
 ```
 
 As a library:
@@ -160,8 +168,10 @@ CLI surface. `python bench/speed.py` runs parse+render on a real 113k-token sess
 | Python | 85.8 ms | 12 ops/s |
 | **Rust (`loom-rs`, release)** | **4.26 ms** | **235 ops/s**, 81 MiB/s |
 
-That is a **~20× speedup**, enough to re-render context on every turn of a long session without
-the budget engine becoming the bottleneck. Rust and Python produce byte-identical output on the
+That is a **~20× in-process speedup**, enough to re-render context on every turn of a long
+session without the budget engine becoming the bottleneck. Measured end-to-end through a
+subprocess, the win is smaller because startup dominates: **~0.7× at 1k words, 2.2× at 4k,
+~8× at 32k** (`python bench/backend.py`). Rust and Python produce byte-identical output on the
 checked-in examples, including under `-b` with `--recap`. One caveat: Python uses `tiktoken`
 (`o200k_base`) for exact counts, while Rust uses a dependency-free estimator (~3.8 ASCII
 chars/token), so a Rust `-b 800` is approximate and will not evict at exactly the same row as
@@ -174,6 +184,56 @@ cd rust && cargo build --release
 ./target/release/loom-rs check ../examples/auth_refresh.loom --strict
 ./target/release/loom-rs bench ../examples/transcript.loom --iterations 1000
 ```
+
+### Automatic backend selection
+
+`loom/accel.py` decides per input whether spawning Rust is worth it. It counts words (cheap;
+no tokenisation), and if the input is above the threshold it **probes the binary** by parsing a
+tiny document with a 350 ms timeout, caching the result per build. Only then does it use Rust.
+Any failure — missing binary, hang, non-zero exit — falls back to Python, so the optimisation
+can never turn a renderable document into an error.
+
+```bash
+# auto: Rust only for large inputs, after a probe (default)
+python -m loom render big_session.loom --explain
+
+# force a backend, or point at another build
+python -m loom render big_session.loom --backend rust --rust /path/to/loom-rs
+LOOM_AUTO_MIN_WORDS=10000 python -m loom decompile big_session.loom
+```
+
+```
+;; backend=rust words=37992 threshold=4000 probe=5.41 ms (large input ... and loom-rs responded)
+```
+
+The 4,000-word default is deliberately conservative. The measured crossover is ~2,000 words on
+row-heavy tables and much higher on plain prose; below that, process startup costs more than the
+parse. `--explain` reports the decision, and `--stats` includes the backend used.
+
+### Does Loom save tokens on the output side?
+
+`python bench/output.py` asks the mirror question: if an agent **writes** Loom instead of
+English, is the answer cheaper? The encoding is the same codec, so the saving is the same as on
+the input side — but only if the reader consumes Loom. Expanding to English costs no model
+tokens (the decompiler is local), but it costs a translation step and some fidelity, and the
+saving then comes from distillation rather than notation.
+
+| answer form | tokens | vs English | literal fidelity |
+|---|---:|---:|---:|
+| English (5 sample answers) | 2,676 | — | 100% |
+| Loom, lossless `compile` | 2,588 | 3.3% | 100% |
+| Loom, lossy `distill` | 2,158 | 19.4% | 96.0% |
+| Loom expanded back to English locally | 2,010 | 24.9% | 96.0% |
+
+Read this narrowly: the lossless row is small because the samples are already terse; the lossy
+row is mostly a summarisation result, and its 24.9% expansion saving comes from dropped content,
+not notation. What the table shows is
+that **notation alone does not create new output savings**. The real output benefit is
+model-to-model handoff: no prose wrapper, structure the next agent can consume directly. Two
+things are *not* measured: whether a model emits valid Loom unprompted, and whether its answer
+is as good. Both need a model run; the prompt and caveats are in
+[`docs/SPEC.md`](docs/SPEC.md#53-loom-as-an-answer-format).
+
 
 
 ## Repository layout
@@ -189,7 +249,9 @@ loom/
     decompile.py  Loom -> English
     ops.py        dedupe, lint, noise report
     budget.py     tiktoken counter with fallback
+    fidelity.py   literal-fidelity checks shared by benchmarks
     session.py    real agent session -> Loom encoder
+    accel.py      word-count detector, Rust probe, safe fallback
     cli.py        compile / distill / decompile / render / check / bench
   rust/
     src/          dependency-free port (ast, parser, render, decompile, ops)
@@ -201,9 +263,12 @@ loom/
   bench/
     eval.py       token + fidelity harness on curated pairs
     sessions.py   real-session token/fidelity/equal-budget harness
-    speed.py      Python vs Rust parse+render benchmark
+    speed.py      Python vs Rust in-process parse+render benchmark
+    backend.py    end-to-end crossover (spawn cost included)
+    output.py     output-side token/fidelity measurement
+    samples/      fixed answer samples for output.py
   examples/       paired English/Loom cases
-  tests/          28 tests: round-trip, budget, lint, distillation, sessions
+  tests/          53 tests: round-trip, budget, lint, distillation, sessions, backend
 ```
 
 ## Status

@@ -161,7 +161,35 @@ open question. Say "You must" for !must and "You must never" for !never. Render 
 unresolved questions. Do not add new facts.
 ```
 
-### 5.3 Legend
+### 5.3 Loom as an answer format
+
+A model may also *emit* Loom as its answer, not prose. The grammar is the same;
+the conventions differ:
+
+- `!goal` restates the question being answered (so a later reader can tell what this answers).
+- `!done` is the conclusion, stated once.
+- `#evidence{id,src,trust,text}` holds findings; `src` is where the finding came from.
+- `#state` holds values the consumer will act on.
+- `?q` holds caveats and things the answer could not resolve. Never silently omit them.
+- No prose outside the constructs. If a sentence does not fit, make it a `#notes` row rather
+  than inventing syntax.
+
+Prompt:
+
+```
+Answer in Loom 1.0 only. No prose before or after the document.
+Put the conclusion in !done, restate the question in !goal, findings in #evidence
+with a source in `src`, actionable values in #state, and caveats in ?q.
+Keep numbers, paths and identifiers byte-exact.
+If a claim has no source, mark its trust <= 0.6.
+```
+
+Validate the result with `loom check --strict` (or `loom-rs check --strict`) before trusting
+it. Two honest caveats: a model that has never seen Loom may emit invalid syntax, and the
+compression measured for an answer is the same as for the equivalent input — the notation
+does not make the model *think* fewer tokens.
+
+### 5.4 Legend
 
 When a model may be unfamiliar with the format, prepend one line:
 
